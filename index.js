@@ -1,12 +1,14 @@
 require("dotenv").config();
 
-const { Telegraf, Composer } = require("telegraf");
+const { Telegraf } = require("telegraf");
+const Stage = require("telegraf/stage");
+const session = require("telegraf/session");
+const Scene = require("telegraf/scenes/base");
+const { leave } = Stage;
 const mongoose = require("mongoose");
 const uri = process.env.ATLAS_URI;
 const User = require("./models/user");
-const csv = require("csv-parser");
-const fastcsv = require("fast-csv");
-const fs = require("fs");
+const Chore = require("./models/chore");
 
 mongoose.connect(uri, {
   useNewUrlParser: true,
@@ -17,30 +19,33 @@ mongoose.connect(uri, {
 const Markup = require("telegraf/markup");
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+const stage = new Stage();
+
+const addChoreName = new Scene("addChoreName");
+stage.register(addChoreName);
+const addChoreEffort = new Scene("addChoreEffort");
+stage.register(addChoreEffort);
+const addChoreTime = new Scene("addChoreTime");
+stage.register(addChoreTime);
+const addChorePeople = new Scene("addChorePeople");
+stage.register(addChorePeople);
 
 bot.use(Telegraf.log());
+bot.use(session());
+bot.use(stage.middleware());
 
-const generalBot = new Composer();
-
-var listings = [];
-var chores;
-
-fs.createReadStream("chores.csv")
-  .pipe(csv())
-  .on("data", (row) => {
-    listings.push(row);
-  })
-  .on("end", () => {
-    // stores will contain the different Stores from the menu.csv.
-    chores = [...new Set(listings.map((item) => item.Chore))];
-  });
-
-generalBot.start((ctx) => {
+bot.start((ctx) => {
   ctx.reply(
     `Hello ${ctx.from.first_name}, what would you like to do?`,
     Markup.inlineKeyboard([
-      Markup.callbackButton("Fill up your schedule", "fill"),
-      Markup.callbackButton("Assign Chores", "assign"),
+      [
+        Markup.callbackButton("Add Chores", "add_chores"),
+        Markup.callbackButton("View Chores", "view_chores"),
+      ],
+      [
+        Markup.callbackButton("Add Users", "add_users"),
+        Markup.callbackButton("View Users", "view_users"),
+      ],
     ])
       .oneTime()
       .resize()
@@ -48,26 +53,77 @@ generalBot.start((ctx) => {
   );
 });
 
-bot.launch();
+bot.action("add_chores", (ctx) => {
+  ctx.reply("Please enter the name of the chore");
+  ctx.scene.enter("addChoreName");
+});
 
-generalBot.action("fill", async (ctx) => {
+addChoreName.on("text", async (ctx) => {
+  ctx.session.chore = { name: ctx.update.message.text.trim() };
+  ctx.session.message = "Name: " + ctx.session.chore.name + "\n";
+  ctx.reply(
+    `You have added:\n\n${ctx.session.message}\nKey in the number of effort level (out of 10) given to the chore.`,
+    Markup.inlineKeyboard([
+      Markup.callbackButton("Enter new chore instead.", "add_chores"),
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+  await ctx.scene.leave("addChoreName");
+  ctx.scene.enter("addChoreEffort");
+});
+
+addChoreEffort.on("text", async (ctx) => {
+  ctx.session.chore.effort = parseFloat(ctx.update.message.text.trim());
+  ctx.session.message += "Effort: " + ctx.session.chore.effort + "/10\n";
+  ctx.reply(
+    `You have added:\n\n${ctx.session.message}\nKey in the amount of time (in minutes) given to the chore.`,
+    Markup.inlineKeyboard([
+      Markup.callbackButton("Enter new chore instead.", "add_chores"),
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+  await ctx.scene.leave("addChoreEffort");
+  ctx.scene.enter("addChoreTime");
+});
+
+addChoreTime.on("text", async (ctx) => {
+  ctx.session.chore.time = parseInt(ctx.update.message.text.trim());
+  ctx.session.message += "Time taken: " + ctx.session.chore.time + "minutes\n";
+  ctx.reply(
+    `You have added:\n\n${ctx.session.message}\nKey in the amount of time (in minutes) given to the chore.`,
+    Markup.inlineKeyboard([
+      Markup.callbackButton("Enter new chore instead.", "add_chores"),
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+  await ctx.scene.leave("addChoreTime");
+  ctx.scene.enter("addChorePeople");
+});
+
+bot.action("select_date", (ctx) => {
+  const dt = new Date().getTime();
+
   const dates = [];
-
-  const date = new Date();
 
   for (let i = 0; i < 7; i++) {
     dates.push(
-      date.setDate(new Date().getDate() + i).toLocaleDateString("en-GB")
+      new Date(dt + i * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB")
     );
   }
 
   ctx.editMessageText(
     "Choose the date you would like to fill in:",
-    Markup.inlineKeyboard([dates.map((x) => Markup.callbackButton(x, x))])
+    Markup.inlineKeyboard(dates.map((x) => [Markup.callbackButton(x, x)]))
       .oneTime()
       .resize()
       .extra()
   );
-  // Following this, the deliveryman would be informed on how many orders are there sent to each location (Queens Lawn OR Princes Gardens)
-  // ctx.editMessageReplyMarkup();
 });
+
+bot.launch();
