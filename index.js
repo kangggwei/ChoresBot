@@ -93,7 +93,7 @@ const addChoreMarkup = [
 ];
 
 addChoreName.on("text", async (ctx) => {
-  ctx.session.chore = { name: ctx.update.message.text.toLowerCase().trim() };
+  ctx.session.chore = { name: ctx.update.message.text.trim() };
 
   const existingChore = await Chore.findOne({ name: ctx.session.chore.name });
 
@@ -321,7 +321,7 @@ editChore.on("text", async (ctx) => {
       }
       break;
     default:
-      ctx.session.value = ctx.update.message.text.toLowerCase().trim();
+      ctx.session.value = ctx.update.message.text.trim();
       await Chore.updateOne(
         { name: ctx.session.existingChore.name },
         { name: ctx.session.value }
@@ -399,7 +399,7 @@ bot.action("submit_name", async (ctx) => {
     `${ctx.session.username} has been ${ctx.session.action}.`,
     Markup.inlineKeyboard([
       [
-        Markup.callbackButton("Add user.", "add_users"),
+        Markup.callbackButton("Add User", "add_users"),
         Markup.callbackButton("View Users", "view_users"),
       ],
       [mainMenuButton],
@@ -484,8 +484,21 @@ bot.action("delete_user", async (ctx) => {
 deleteUser.action(/^</, async (ctx) => {
   ctx.session.deleteUser = ctx.update.callback_query.data.replace("<", "");
   await User.deleteOne({ name: ctx.session.deleteUser });
-  ctx.reply(`The user "${ctx.session.deleteUser}" has been removed.`);
+  ctx.reply(
+    `The user "${ctx.session.deleteUser}" has been removed.`,
+    Markup.inlineKeyboard([
+      [Markup.callbackButton("Delete Another", "delete_user")],
+      [mainMenuButton],
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
   await ctx.scene.leave("deleteUser");
+  ctx.session.existingUsers = await User.find();
+  ctx.session.userList = ctx.session.existingUsers.map((x) => [
+    Markup.callbackButton(x.name, "<" + x.name),
+  ]);
 });
 
 bot.action("select_date", (ctx) => {
