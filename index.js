@@ -18,6 +18,7 @@ mongoose.connect(uri, {
 
 const Markup = require("telegraf/markup");
 const { inlineKeyboard } = require("telegraf/markup");
+const { update } = require("./models/user");
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const stage = new Stage();
@@ -36,10 +37,14 @@ const editChore = new Scene("editChore");
 stage.register(editChore);
 const addUserName = new Scene("addUserName");
 stage.register(addUserName);
-const editUser = new Scene("editUser");
-stage.register(editUser);
+const editName = new Scene("editName");
+stage.register(editName);
 const deleteUser = new Scene("deleteUser");
 stage.register(deleteUser);
+const selectDate = new Scene("selectDate");
+stage.register(selectDate);
+const updateUser = new Scene("updateUser");
+stage.register(updateUser);
 
 bot.use(Telegraf.log());
 bot.use(session());
@@ -429,7 +434,8 @@ bot.action("view_users", async (ctx) => {
         (x) => `\n${x.name}: ${x.points}`
       )}`,
       Markup.inlineKeyboard([
-        [Markup.callbackButton("Change a user's name", "edit_user")],
+        [Markup.callbackButton("Add a user", "add_user")],
+        [Markup.callbackButton("Update user data", "update_user")],
         [Markup.callbackButton("Delete a user", "delete_user")],
         [mainMenuButton],
       ])
@@ -451,7 +457,35 @@ bot.action("view_users", async (ctx) => {
   }
 });
 
-bot.action("edit_user", async (ctx) => {
+bot.action("update_user", async (ctx) => {
+  ctx.editMessageText(
+    `Which user would you like to edit?`,
+    Markup.inlineKeyboard([...ctx.session.userList, [mainMenuButton]])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+
+  ctx.session.updateUser = ctx.update.callback_query.data.replace("<", "");
+
+  await ctx.scene.enter("updateUser");
+});
+
+updateUser.action(/^</, async (ctx) => {
+  ctx.editMessageText(
+    `What would you like to change?`,
+    Markup.inlineKeyboard([
+      [Markup.callbackButton("Edit name", "edit_name")],
+      [Markup.callbackButton("Update availability", "select_date")],
+      [mainMenuButton],
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+});
+
+bot.action("edit_name", async (ctx) => {
   await ctx.scene.enter("editUser");
 
   ctx.editMessageText(
@@ -463,7 +497,7 @@ bot.action("edit_user", async (ctx) => {
   );
 });
 
-editUser.action(/^</, async (ctx) => {
+editName.action(/^</, async (ctx) => {
   ctx.session.changeUser = ctx.update.callback_query.data.replace("<", "");
   ctx.reply(`Please enter the new name for ${ctx.session.changeUser}`);
   ctx.session.new = false;
@@ -501,6 +535,12 @@ deleteUser.action(/^</, async (ctx) => {
   ]);
 });
 
+////////////////////////////////////////
+//                                    //
+//      Selecting Dates Scene         //
+//                                    //
+////////////////////////////////////////
+
 bot.action("select_date", (ctx) => {
   const dt = new Date().getTime();
 
@@ -515,6 +555,29 @@ bot.action("select_date", (ctx) => {
   ctx.editMessageText(
     "Choose the date you would like to fill in:",
     Markup.inlineKeyboard(dates.map((x) => [Markup.callbackButton(x, x)]))
+      .oneTime()
+      .resize()
+      .extra()
+  );
+
+  ctx.scene.enter("selectDate");
+});
+
+selectDate.action(/^</, async (ctx) => {
+  ctx.session.selectDate = new Date(ctx.update.callback_query.data);
+
+  const times = [];
+  const dt = new Date().getTime();
+
+  for (let i = 0; i < 10; i++) {
+    times.push(
+      new Date(dt + i * 30 * 60 * 1000).toLocaleTimeString("en-GB")
+    );
+  }
+
+  ctx.editMessageText(
+    "Choose the times you are unavailable:",
+    Markup.inlineKeyboard(times.map((x) => [Markup.callbackButton(x, x)]))
       .oneTime()
       .resize()
       .extra()
