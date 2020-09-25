@@ -31,6 +31,8 @@ const addChoreTime = new Scene("addChoreTime");
 stage.register(addChoreTime);
 const addChorePeople = new Scene("addChorePeople");
 stage.register(addChorePeople);
+const addChoreFrequency = new Scene("addChoreFrequency");
+stage.register(addChoreFrequency);
 const viewChore = new Scene("viewChore");
 stage.register(viewChore);
 const editChore = new Scene("editChore");
@@ -150,10 +152,30 @@ addChoreTime.on("text", async (ctx) => {
     ctx.session.message +=
       "Time taken: " + ctx.session.chore.time + " minutes\n";
     ctx.reply(
-      `You have added:\n\n${ctx.session.message}\nKey in the number of people required for the chore.`,
+      `You have added:\n\n${ctx.session.message}\nKey in the frequency for the chore in a month (4 weeks).`,
       Markup.inlineKeyboard(addChoreMarkup).oneTime().resize().extra()
     );
     await ctx.scene.leave("addChoreTime");
+    ctx.scene.enter("addChoreFrequency");
+  }
+});
+
+addChoreFrequency.on("text", async (ctx) => {
+  ctx.session.chore.frequency = parseInt(ctx.update.message.text.trim());
+  if (isNaN(ctx.session.chore.frequency)) {
+    ctx.reply(`You did not enter a number. Please try again.`);
+  } else if (ctx.session.chore.frequency < 0) {
+    ctx.reply(
+      `The number you entered is less than or equal to zero. Please try again.`
+    );
+  } else {
+    ctx.session.message +=
+      "Frequency: " + ctx.session.chore.time + " times per month\n";
+    ctx.reply(
+      `You have added:\n\n${ctx.session.message}\nKey in the number of people required for the chore.`,
+      Markup.inlineKeyboard(addChoreMarkup).oneTime().resize().extra()
+    );
+    await ctx.scene.leave("addChoreFrequency");
     ctx.scene.enter("addChorePeople");
   }
 });
@@ -255,6 +277,7 @@ viewChore.action(/^</, async (ctx) => {
 Name: ${ctx.session.existingChore.name}
 Effort points: ${ctx.session.existingChore.effort}
 Time taken: ${ctx.session.existingChore.time}
+Frequency (times per month): ${ctx.session.existingChore.frequency}
 Number of people required: ${ctx.session.existingChore.people}\n
 Do you want to edit any information?`,
     Markup.inlineKeyboard([
@@ -264,8 +287,9 @@ Do you want to edit any information?`,
       ],
       [
         Markup.callbackButton("Time taken", "<time"),
-        Markup.callbackButton("Number of people", "<people"),
+        Markup.callbackButton("Frequency", "<frequency"),
       ],
+      [Markup.callbackButton("Number of people", "<people")],
       [Markup.callbackButton("Delete this chore", "delete_chore")],
       ...viewChoreMarkup,
     ])
@@ -313,6 +337,15 @@ editChore.on("text", async (ctx) => {
         await Chore.updateOne(
           { name: ctx.session.existingChore.name },
           { time: ctx.session.value }
+        );
+      }
+      break;
+    case "frequency":
+      ctx.session.value = parseInt(ctx.update.message.text.trim());
+      if (success) {
+        await Chore.updateOne(
+          { name: ctx.session.existingChore.name },
+          { frequency: ctx.session.value }
         );
       }
       break;
@@ -486,7 +519,7 @@ updateUser.action(/^</, async (ctx) => {
 });
 
 bot.action("edit_name", async (ctx) => {
-  await ctx.scene.enter("editUser");
+  await ctx.scene.enter("editName");
 
   ctx.editMessageText(
     `Which user would you like to edit?`,
@@ -570,9 +603,7 @@ selectDate.action(/^</, async (ctx) => {
   const dt = new Date().getTime();
 
   for (let i = 0; i < 10; i++) {
-    times.push(
-      new Date(dt + i * 30 * 60 * 1000).toLocaleTimeString("en-GB")
-    );
+    times.push(new Date(dt + i * 30 * 60 * 1000).toLocaleTimeString("en-GB"));
   }
 
   ctx.editMessageText(

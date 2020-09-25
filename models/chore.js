@@ -7,6 +7,7 @@ const choreSchema = new Schema({
   time: { type: Number, required: true },
   effort: { type: Number, required: true },
   people: { type: Number, required: true },
+  frequency: { type: Number, required: true },
 });
 
 const Chore = mongoose.model("Chore", choreSchema, "chore");
