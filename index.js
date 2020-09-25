@@ -473,9 +473,8 @@ bot.action("update_user", async (ctx) => {
 });
 
 updateUser.action(/^</, async (ctx) => {
-
   ctx.session.updateUser = ctx.update.callback_query.data.replace("<", "");
-  
+
   ctx.editMessageText(
     `What would you like to change?`,
     Markup.inlineKeyboard([
@@ -559,22 +558,28 @@ selectDate.on("callback_query", async (ctx) => {
   // const existingUser = await Days.findOne({ name: ctx.session.updateUser });
 
   // selectedDate: day, month, year
-  ctx.session.selectedDate = ctx.update.callback_query.data.split('/').map(Number);
+  ctx.session.selectedDate = ctx.update.callback_query.data
+    .split("/")
+    .map(Number);
   console.log(ctx.session.selectedDate);
 
   let x = 60; //minutes interval
   let times = []; // time array
-  let curr_time = 8*60; // start time
-  let ap = ['AM', 'PM']; // AM-PM
+  let curr_time = 8 * 60; // start time
+  let ap = ["AM", "PM"]; // AM-PM
 
   //loop to increment the time and push results in array
-  for (let i=0;curr_time<22*60; i++) {
-    let hour = Math.floor(curr_time/60); // get hours of day in 0-24 format
-    let min = (curr_time%60); // get minutes of the hour in 0-55 format
-    if(hour == 12){
-      times[i] = "12" + ':' + ("0" + min).slice(-2) + ap[Math.floor(hour/12)]; // pushing data in array in [00:00 - 12:00 AM/PM format]
+  for (let i = 0; curr_time < 22 * 60; i++) {
+    let hour = Math.floor(curr_time / 60); // get hours of day in 0-24 format
+    let min = curr_time % 60; // get minutes of the hour in 0-55 format
+    if (hour == 12) {
+      times[i] = "12" + ":" + ("0" + min).slice(-2) + ap[Math.floor(hour / 12)]; // pushing data in array in [00:00 - 12:00 AM/PM format]
     } else {
-      times[i] = ("0" + (hour % 12)).slice(-2) + ':' + ("0" + min).slice(-2) + ap[Math.floor(hour/12)]; // pushing data in array in [00:00 - 12:00 AM/PM format]
+      times[i] =
+        ("0" + (hour % 12)).slice(-2) +
+        ":" +
+        ("0" + min).slice(-2) +
+        ap[Math.floor(hour / 12)]; // pushing data in array in [00:00 - 12:00 AM/PM format]
     }
     curr_time = curr_time + x;
   }
@@ -589,11 +594,10 @@ selectDate.on("callback_query", async (ctx) => {
 });
 
 submitDate.on("callback_query", async (ctx) => {
-
-  let time_array = ctx.update.callback_query.data.split(':')
+  let time_array = ctx.update.callback_query.data.split(":");
   const ap = time_array[1].slice(-2);
   time_array[1] = parseInt(time_array[1].slice(0, -2), 10);
-  if(ap == 'AM'){
+  if (ap == "AM") {
     time_array[0] = parseInt(time_array[0], 10);
   } else {
     let string_mins = time_array[0];
@@ -602,15 +606,20 @@ submitDate.on("callback_query", async (ctx) => {
   }
 
   let input = [];
-  const input_date = new Date(ctx.session.selectedDate[2], ctx.session.selectedDate[1] ,ctx.session.selectedDate[0], time_array[0], time_array[1]);
+  const input_date = new Date(
+    ctx.session.selectedDate[2],
+    ctx.session.selectedDate[1],
+    ctx.session.selectedDate[0],
+    time_array[0],
+    time_array[1]
+  );
   input.push(input_date);
-  
+
   const myDays = new Days({
     name: ctx.session.updateUser,
     availability: input,
   });
   myDays.save();
-
 });
 
 bot.launch();
