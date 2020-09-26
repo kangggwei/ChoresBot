@@ -18,12 +18,21 @@ mongoose.connect(uri, {
 });
 
 const Markup = require("telegraf/markup");
-const { inlineKeyboard } = require("telegraf/markup");
-const { update } = require("./models/user");
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const stage = new Stage();
 
+function split(array, n) {
+  let arr = array;
+  var res = [];
+  while (arr.length) {
+    res.push(arr.splice(0, n));
+  }
+  return res;
+}
+
+const edit = new Scene("edit");
+stage.register(edit);
 const addChoreName = new Scene("addChoreName");
 stage.register(addChoreName);
 const addChoreEffort = new Scene("addChoreEffort");
@@ -48,26 +57,45 @@ const selectDate = new Scene("selectDate");
 stage.register(selectDate);
 const updateUser = new Scene("updateUser");
 stage.register(updateUser);
-const submitDate = new Scene("submitDate");
-stage.register(submitDate);
+const selectAvailability = new Scene("selectAvailability");
+stage.register(selectAvailability);
+const selectTime = new Scene("selectTime");
+stage.register(selectTime);
 
 bot.use(Telegraf.log());
 bot.use(session());
 bot.use(stage.middleware());
 
+bot.start((ctx) => {
+  ctx.reply(
+    `Main Menu`,
+    Markup.inlineKeyboard([
+      [Markup.callbackButton("🧹 Assign Chores", "assign")],
+      [
+        Markup.callbackButton("⏰ Update Availability", "availability"),
+        Markup.callbackButton("✂️ Edit Chores/Users", "edit"),
+      ],
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+});
+
 const mainButton = [
   [
-    Markup.callbackButton("Add Chores", "add_chores"),
-    Markup.callbackButton("View Chores", "view_chores"),
+    Markup.callbackButton("➕ Add Chores", "add_chores"),
+    Markup.callbackButton("👁️ View Chores", "view_chores"),
   ],
   [
-    Markup.callbackButton("Add Users", "add_users"),
-    Markup.callbackButton("View Users", "view_users"),
+    Markup.callbackButton("➕ Add Users", "add_users"),
+    Markup.callbackButton("👁️ View Users", "view_users"),
   ],
 ];
 
-bot.start((ctx) => {
-  ctx.reply(
+bot.action("edit", (ctx) => {
+  ctx.scene.enter("edit");
+  ctx.editMessageText(
     `Hello ${ctx.from.first_name}, what would you like to do?`,
     Markup.inlineKeyboard(mainButton).oneTime().resize().extra()
   );
@@ -75,8 +103,17 @@ bot.start((ctx) => {
 
 bot.action("main_screen", (ctx) => {
   ctx.reply(
-    `What would you like to do?`,
-    Markup.inlineKeyboard(mainButton).oneTime().resize().extra()
+    `Main Menu`,
+    Markup.inlineKeyboard([
+      [Markup.callbackButton("Assign Chores", "assign")],
+      [
+        Markup.callbackButton("Update Availability", "availability"),
+        Markup.callbackButton("✂️ Edit Chores/Users", "edit"),
+      ],
+    ])
+      .oneTime()
+      .resize()
+      .extra()
   );
   ctx.editMessageReplyMarkup();
 });
@@ -92,7 +129,7 @@ const mainMenuButton = Markup.callbackButton(
 //                                    //
 ////////////////////////////////////////
 
-bot.action("add_chores", (ctx) => {
+edit.action("add_chores", (ctx) => {
   ctx.reply("Please enter the name of the chore");
   ctx.scene.enter("addChoreName");
   ctx.editMessageReplyMarkup();
@@ -196,7 +233,7 @@ addChorePeople.on("text", async (ctx) => {
     ctx.reply(
       `You have added:\n\n${ctx.session.message}\nWhat do you want to do next?`,
       Markup.inlineKeyboard([
-        [Markup.callbackButton("Add this chore", "submit_chore")],
+        [Markup.callbackButton("✅ Submit", "submit_chore")],
         ...addChoreMarkup,
       ])
         .oneTime()
@@ -221,8 +258,8 @@ bot.action("submit_chore", (ctx) => {
     `The chore has been added!\n\n${ctx.session.message}`,
     Markup.inlineKeyboard([
       [
-        Markup.callbackButton("Add another chore", "add_chores"),
-        Markup.callbackButton("View chores", "view_chores"),
+        Markup.callbackButton("➕ Add another chore", "add_chores"),
+        Markup.callbackButton("👁️ View chores", "view_chores"),
       ],
       [mainMenuButton],
     ])
@@ -238,7 +275,7 @@ bot.action("submit_chore", (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-bot.action("view_chores", async (ctx) => {
+edit.action("view_chores", async (ctx) => {
   const existingChores = await Chore.find();
 
   const choresList = existingChores.map((x) => [
@@ -258,7 +295,7 @@ bot.action("view_chores", async (ctx) => {
     ctx.editMessageText(
       "There are currently no chores. Please add chores to view them.",
       Markup.inlineKeyboard([
-        [Markup.callbackButton("Add Chores", "add_chores"), mainMenuButton],
+        [Markup.callbackButton("➕ Add Chores", "add_chores"), mainMenuButton],
       ])
         .oneTime()
         .resize()
@@ -268,7 +305,7 @@ bot.action("view_chores", async (ctx) => {
 });
 
 const viewChoreMarkup = [
-  [Markup.callbackButton("View chores", "view_chores"), mainMenuButton],
+  [Markup.callbackButton("👁️ View chores", "view_chores"), mainMenuButton],
 ];
 
 viewChore.action(/^</, async (ctx) => {
@@ -385,7 +422,7 @@ editChore.on("text", async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-bot.action("add_users", (ctx) => {
+edit.action("add_users", (ctx) => {
   ctx.editMessageText("Enter the name of the user you would like to add.");
   ctx.session.new = true;
   ctx.scene.enter("addUserName");
@@ -394,7 +431,9 @@ bot.action("add_users", (ctx) => {
 addUserName.on("text", async (ctx) => {
   ctx.session.username = ctx.update.message.text.trim();
   const existingUser = await User.findOne({ name: ctx.session.username });
-  ctx.session.action = ctx.session.new ? "add" : "modify";
+  ctx.session.action = ctx.session.new
+    ? "add"
+    : `change ${ctx.session.updateUser} to`;
 
   if (existingUser) {
     ctx.reply(
@@ -427,21 +466,19 @@ bot.action("submit_name", async (ctx) => {
     myUser.save();
   } else {
     await User.updateOne(
-      { name: ctx.session.changeUser },
+      { name: ctx.session.updateUser },
       { name: ctx.session.username }
     );
   }
 
-  ctx.session.action = ctx.session.new
-    ? "added to the list"
-    : "modified from the list";
+  ctx.session.action = ctx.session.new ? "added to the list" : "modified";
 
   ctx.reply(
     `${ctx.session.username} has been ${ctx.session.action}.`,
     Markup.inlineKeyboard([
       [
-        Markup.callbackButton("Add User", "add_users"),
-        Markup.callbackButton("View Users", "view_users"),
+        Markup.callbackButton("➕ Add User", "add_users"),
+        Markup.callbackButton("👁️ View Users", "view_users"),
       ],
       [mainMenuButton],
     ])
@@ -458,7 +495,7 @@ bot.action("submit_name", async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-bot.action("view_users", async (ctx) => {
+edit.action("view_users", async (ctx) => {
   ctx.session.existingUsers = await User.find();
   ctx.session.userList = ctx.session.existingUsers.map((x) => [
     Markup.callbackButton(x.name, "<" + x.name),
@@ -470,7 +507,7 @@ bot.action("view_users", async (ctx) => {
         (x) => `\n${x.name}: ${x.points}`
       )}`,
       Markup.inlineKeyboard([
-        [Markup.callbackButton("Add a user", "add_user")],
+        [Markup.callbackButton("➕ Add a user", "add_user")],
         [Markup.callbackButton("Update user data", "update_user")],
         [Markup.callbackButton("Delete a user", "delete_user")],
         [mainMenuButton],
@@ -483,7 +520,7 @@ bot.action("view_users", async (ctx) => {
     ctx.editMessageText(
       "There are currently no users. Please add users to view them.",
       Markup.inlineKeyboard([
-        [Markup.callbackButton("Add Users", "add_users")],
+        [Markup.callbackButton("➕ Add Users", "add_users")],
         [mainMenuButton],
       ])
         .oneTime()
@@ -511,8 +548,7 @@ updateUser.action(/^</, async (ctx) => {
   ctx.editMessageText(
     `What would you like to change?`,
     Markup.inlineKeyboard([
-      [Markup.callbackButton("Edit name", "edit_name")],
-      [Markup.callbackButton("Update availability", "select_date")],
+      [Markup.callbackButton("✂️ Edit name", "edit_name")],
       [mainMenuButton],
     ])
       .oneTime()
@@ -521,9 +557,8 @@ updateUser.action(/^</, async (ctx) => {
   );
 });
 
-bot.action("edit_name", async (ctx) => {
+updateUser.action("edit_name", async (ctx) => {
   await ctx.scene.enter("addUserName");
-  ctx.session.changeUser = ctx.update.callback_query.data.replace("<", "");
   ctx.reply(`Please enter the new name for ${ctx.session.updateUser}`);
   ctx.session.new = false;
 });
@@ -565,21 +600,40 @@ deleteUser.action(/^</, async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-bot.action("select_date", (ctx) => {
+bot.action("availability", async (ctx) => {
+  ctx.session.existingUsers = await User.find();
+  ctx.session.userList = ctx.session.existingUsers.map((x) => [
+    Markup.callbackButton(x.name, "<" + x.name),
+  ]);
+
+  ctx.editMessageText(
+    `Whose availibility would you like to update?`,
+    Markup.inlineKeyboard([...ctx.session.userList, [mainMenuButton]])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+  ctx.scene.enter("selectAvailability");
+});
+
+selectAvailability.on("callback_query", (ctx) => {
+  ctx.session.updateUser = ctx.update.callback_query.data.replace("<", "");
   ctx.scene.enter("selectDate");
   const dt = new Date().getTime();
 
-  const dates = [];
+  ctx.session.dates = [];
 
-  for (let i = 0; i < 7; i++) {
-    dates.push(
+  for (let i = 1; i < 8; i++) {
+    ctx.session.dates.push(
       new Date(dt + i * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB")
     );
   }
 
   ctx.editMessageText(
     "Choose the date you would like to fill in:",
-    Markup.inlineKeyboard(dates.map((x) => [Markup.callbackButton(x, x)]))
+    Markup.inlineKeyboard(
+      ctx.session.dates.map((x) => [Markup.callbackButton(x, x)])
+    )
       .oneTime()
       .resize()
       .extra()
@@ -587,17 +641,19 @@ bot.action("select_date", (ctx) => {
 });
 
 selectDate.on("callback_query", async (ctx) => {
-  await ctx.scene.enter("submitDate");
-  // const existingUser = await Days.findOne({ name: ctx.session.updateUser });
+  await ctx.scene.leave("selectDate");
+  ctx.scene.enter("selectTime");
 
   // selectedDate: day, month, year
-  ctx.session.selectedDate = ctx.update.callback_query.data
-    .split("/")
-    .map(Number);
-  console.log(ctx.session.selectedDate);
+  ctx.session.selectedDate = ctx.update.callback_query.data;
+
+  ctx.session.existingEntry = await Days.findOne({
+    name: ctx.session.updateUser,
+    date: ctx.session.selectedDate,
+  });
 
   let x = 60; //minutes interval
-  let times = []; // time array
+  ctx.session.times = []; // time array
   let curr_time = 8 * 60; // start time
   let ap = ["AM", "PM"]; // AM-PM
 
@@ -606,53 +662,207 @@ selectDate.on("callback_query", async (ctx) => {
     let hour = Math.floor(curr_time / 60); // get hours of day in 0-24 format
     let min = curr_time % 60; // get minutes of the hour in 0-55 format
     if (hour == 12) {
-      times[i] = "12" + ":" + ("0" + min).slice(-2) + ap[Math.floor(hour / 12)]; // pushing data in array in [00:00 - 12:00 AM/PM format]
+      ctx.session.times.push({
+        time: "12" + ":" + ("0" + min).slice(-2) + ap[Math.floor(hour / 12)],
+      }); // pushing data in array in [00:00 - 12:00 AM/PM format]
     } else {
-      times[i] =
-        ("0" + (hour % 12)).slice(-2) +
-        ":" +
-        ("0" + min).slice(-2) +
-        ap[Math.floor(hour / 12)]; // pushing data in array in [00:00 - 12:00 AM/PM format]
+      ctx.session.times.push({
+        time:
+          ("0" + (hour % 12)).slice(-2) +
+          ":" +
+          ("0" + min).slice(-2) +
+          ap[Math.floor(hour / 12)],
+      }); // pushing data in array in [00:00 - 12:00 AM/PM format]
     }
     curr_time = curr_time + x;
   }
 
+  if (ctx.session.existingEntry) {
+    ctx.session.times.map(
+      (x) =>
+        (x.clicked = ctx.session.existingEntry.timings.includes(x.time)
+          ? false
+          : true)
+    );
+  }
+
+  ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
+
   ctx.editMessageText(
     "Choose the times you are unavailable:",
-    Markup.inlineKeyboard(times.map((x) => [Markup.callbackButton(x, x)]))
+    Markup.inlineKeyboard([
+      ...split(
+        ctx.session.times.map((x) =>
+          Markup.callbackButton(
+            `${x.clicked ? "❌ " : ""}${x.time}`,
+            `<${x.time}`
+          )
+        ),
+        2
+      ),
+      [
+        Markup.callbackButton(
+          `${ctx.session.check.length ? "Des" : "S"}elect All`,
+          "select_all"
+        ),
+      ],
+      [Markup.callbackButton("✅ Submit", "submit_timings")],
+      [
+        Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
+        mainMenuButton,
+      ],
+    ])
       .oneTime()
       .resize()
       .extra()
   );
 });
 
-submitDate.on("callback_query", async (ctx) => {
-  let time_array = ctx.update.callback_query.data.split(":");
-  const ap = time_array[1].slice(-2);
-  time_array[1] = parseInt(time_array[1].slice(0, -2), 10);
-  if (ap == "AM") {
-    time_array[0] = parseInt(time_array[0], 10);
+selectTime.action(/^</, async (ctx) => {
+  ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
+  const clicked = ctx.update.callback_query.data.replace("<", "");
+
+  ctx.session.times.map((x) => {
+    if (x.time === clicked) {
+      x.clicked = x.clicked ? false : true;
+    }
+  });
+
+  ctx.editMessageText(
+    "Choose the times you are unavailable:",
+    Markup.inlineKeyboard([
+      ...split(
+        ctx.session.times.map((x) =>
+          Markup.callbackButton(
+            `${x.clicked ? "❌ " : ""}${x.time}`,
+            `<${x.time}`
+          )
+        ),
+        2
+      ),
+      [
+        Markup.callbackButton(
+          `${ctx.session.check.length ? "Des" : "S"}elect All`,
+          "select_all"
+        ),
+      ],
+      [Markup.callbackButton("✅ Submit", "submit_timings")],
+      [
+        Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
+        mainMenuButton,
+      ],
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+});
+
+selectTime.action("select_all", async (ctx) => {
+  ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
+
+  if (ctx.session.check.length) {
+    ctx.session.times.map((x) => {
+      x.clicked = true;
+    });
   } else {
-    let string_mins = time_array[0];
-    let minutes = parseInt(string_mins, 10);
-    time_array[0] = minutes + 12;
+    ctx.session.times.map((x) => {
+      x.clicked = false;
+    });
   }
 
-  let input = [];
-  const input_date = new Date(
-    ctx.session.selectedDate[2],
-    ctx.session.selectedDate[1],
-    ctx.session.selectedDate[0],
-    time_array[0],
-    time_array[1]
+  ctx.editMessageText(
+    "Choose the times you are unavailable:",
+    Markup.inlineKeyboard([
+      ...split(
+        ctx.session.times.map((x) =>
+          Markup.callbackButton(
+            `${x.clicked ? "❌ " : ""}${x.time}`,
+            `<${x.time}`
+          )
+        ),
+        2
+      ),
+      [
+        Markup.callbackButton(
+          `${ctx.session.check.length ? "Des" : "S"}elect All`,
+          "select_all"
+        ),
+      ],
+      [Markup.callbackButton("✅ Submit", "submit_timings")],
+      [
+        Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
+        mainMenuButton,
+      ],
+    ])
+      .oneTime()
+      .resize()
+      .extra()
   );
-  input.push(input_date);
-
-  const myDays = new Days({
-    name: ctx.session.updateUser,
-    availability: input,
-  });
-  myDays.save();
 });
+
+selectTime.action("submit_timings", async (ctx) => {
+  const availabileTimings = [];
+  ctx.session.times.map((x) => {
+    if (!x.clicked) {
+      availabileTimings.push(x.time);
+    }
+  });
+
+  if (ctx.session.existingEntry) {
+    await Days.updateOne(
+      { name: ctx.session.updateUser, date: ctx.session.selectedDate },
+      { timings: availabileTimings, updatedBy: ctx.from.username }
+    );
+  } else {
+    const myDays = new Days({
+      name: ctx.session.updateUser,
+      date: ctx.session.selectedDate,
+      timings: availabileTimings,
+      updatedBy: ctx.from.username,
+    });
+    myDays.save();
+  }
+
+  ctx.editMessageText(
+    `You have updated ${ctx.session.updateUser}'s unavailable timings for ${ctx.session.selectedDate}.`,
+    Markup.inlineKeyboard([
+      [
+        Markup.callbackButton(
+          `Update ${ctx.session.updateUser}'s Availability`,
+          "sameUserAvailability"
+        ),
+      ],
+      [Markup.callbackButton(`Update Availability`, "availability")],
+      [mainMenuButton],
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+  await ctx.scene.leave("selectTime");
+});
+
+bot.action("sameUserAvailability", (ctx) => {
+  ctx.scene.enter("selectDate");
+
+  ctx.editMessageText(
+    "Choose the date you would like to fill in:",
+    Markup.inlineKeyboard(
+      ctx.session.dates.map((x) => [Markup.callbackButton(x, x)])
+    )
+      .oneTime()
+      .resize()
+      .extra()
+  );
+});
+
+////////////////////////////////////////
+//                                    //
+//      Assigning Chores Scene        //
+//                                    //
+////////////////////////////////////////
+
+bot.action("assign", async (ctx) => {});
 
 bot.launch();
