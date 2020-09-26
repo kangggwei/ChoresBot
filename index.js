@@ -10,6 +10,7 @@ const uri = process.env.ATLAS_URI;
 const User = require("./models/user");
 const Chore = require("./models/chore");
 const Days = require("./models/days");
+const History = require("./models/history");
 
 mongoose.connect(uri, {
   useNewUrlParser: true,
@@ -18,29 +19,15 @@ mongoose.connect(uri, {
 });
 
 const Markup = require("telegraf/markup");
+const Extra = require("telegraf/extra");
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const stage = new Stage();
 
-function split(array, n) {
-  let arr = array;
-  var res = [];
-  while (arr.length) {
-    res.push(arr.splice(0, n));
-  }
-  return res;
-}
-
-const edit = new Scene("edit");
-stage.register(edit);
 const addChoreName = new Scene("addChoreName");
 stage.register(addChoreName);
 const addChoreEffort = new Scene("addChoreEffort");
 stage.register(addChoreEffort);
-const addChoreTime = new Scene("addChoreTime");
-stage.register(addChoreTime);
-const addChorePeople = new Scene("addChorePeople");
-stage.register(addChorePeople);
 const addChoreFrequency = new Scene("addChoreFrequency");
 stage.register(addChoreFrequency);
 const viewChore = new Scene("viewChore");
@@ -66,11 +53,44 @@ bot.use(Telegraf.log());
 bot.use(session());
 bot.use(stage.middleware());
 
+////////////////////////////////////////
+//                                    //
+//          General Functions         //
+//                                    //
+////////////////////////////////////////
+
+function split(array, n) {
+  let arr = array;
+  var res = [];
+  while (arr.length) {
+    res.push(arr.splice(0, n));
+  }
+  return res;
+}
+
+function toDate(dateString) {
+  const full = dateString.split("/");
+  return new Date(full[2], full[1], full[0]);
+}
+
+function dateDiff(first, second) {
+  return Math.round((toDate(second) - toDate(first)) / (1000 * 60 * 60 * 24));
+}
+
+////////////////////////////////////////
+//                                    //
+//            Main Screen             //
+//                                    //
+////////////////////////////////////////
+
 bot.start((ctx) => {
   ctx.reply(
-    `Main Menu`,
+    `Main Menu \n`,
     Markup.inlineKeyboard([
-      [Markup.callbackButton("🧹 Assign Chores", "assign")],
+      [
+        Markup.callbackButton("👁️ Outstanding Chores", "outstanding"),
+        Markup.callbackButton("🧹 Assign Chores", "assign"),
+      ],
       [
         Markup.callbackButton("⏰ Update Availability", "availability"),
         Markup.callbackButton("✂️ Edit Chores/Users", "edit"),
@@ -84,30 +104,32 @@ bot.start((ctx) => {
 
 const mainButton = [
   [
-    Markup.callbackButton("➕ Add Chores", "add_chores"),
-    Markup.callbackButton("👁️ View Chores", "view_chores"),
+    Markup.callbackButton("➕ Add Chores", "addChores"),
+    Markup.callbackButton("👁️ View Chores", "viewChores"),
   ],
   [
-    Markup.callbackButton("➕ Add Users", "add_users"),
-    Markup.callbackButton("👁️ View Users", "view_users"),
+    Markup.callbackButton("➕ Add Users", "addUsers"),
+    Markup.callbackButton("👁️ View Users", "viewUsers"),
   ],
 ];
 
 bot.action("edit", (ctx) => {
-  ctx.scene.enter("edit");
   ctx.editMessageText(
     `Hello ${ctx.from.first_name}, what would you like to do?`,
     Markup.inlineKeyboard(mainButton).oneTime().resize().extra()
   );
 });
 
-bot.action("main_screen", (ctx) => {
+bot.action("mainScreen", (ctx) => {
   ctx.reply(
-    `Main Menu`,
+    `Main Menu \n`,
     Markup.inlineKeyboard([
-      [Markup.callbackButton("Assign Chores", "assign")],
       [
-        Markup.callbackButton("Update Availability", "availability"),
+        Markup.callbackButton("👁️ Outstanding Chores", "outstanding"),
+        Markup.callbackButton("🧹 Assign Chores", "assign"),
+      ],
+      [
+        Markup.callbackButton("⏰ Update Availability", "availability"),
         Markup.callbackButton("✂️ Edit Chores/Users", "edit"),
       ],
     ])
@@ -120,7 +142,7 @@ bot.action("main_screen", (ctx) => {
 
 const mainMenuButton = Markup.callbackButton(
   "🏠 Back to main...",
-  "main_screen"
+  "mainScreen"
 );
 
 ////////////////////////////////////////
@@ -129,14 +151,14 @@ const mainMenuButton = Markup.callbackButton(
 //                                    //
 ////////////////////////////////////////
 
-edit.action("add_chores", (ctx) => {
+bot.action("addChores", (ctx) => {
   ctx.reply("Please enter the name of the chore");
   ctx.scene.enter("addChoreName");
   ctx.editMessageReplyMarkup();
 });
 
 const addChoreMarkup = [
-  [Markup.callbackButton("Restart", "add_chores"), mainMenuButton],
+  [Markup.callbackButton("Restart", "addChores"), mainMenuButton],
 ];
 
 addChoreName.on("text", async (ctx) => {
@@ -172,30 +194,10 @@ addChoreEffort.on("text", async (ctx) => {
   } else {
     ctx.session.message += "Effort: " + ctx.session.chore.effort + "/10\n";
     ctx.reply(
-      `You have added:\n\n${ctx.session.message}\nKey in the amount of time (in minutes) given to the chore.`,
+      `You have added:\n\n${ctx.session.message}\nKey in the frequency of the chore (times per month i.e. 28 days).`,
       Markup.inlineKeyboard(addChoreMarkup).oneTime().resize().extra()
     );
     await ctx.scene.leave("addChoreEffort");
-    ctx.scene.enter("addChoreTime");
-  }
-});
-
-addChoreTime.on("text", async (ctx) => {
-  ctx.session.chore.time = parseInt(ctx.update.message.text.trim());
-  if (isNaN(ctx.session.chore.time)) {
-    ctx.reply(`You did not enter a number. Please try again.`);
-  } else if (ctx.session.chore.time < 0) {
-    ctx.reply(
-      `The number you entered is less than or equal to zero. Please try again.`
-    );
-  } else {
-    ctx.session.message +=
-      "Time taken: " + ctx.session.chore.time + " minutes\n";
-    ctx.reply(
-      `You have added:\n\n${ctx.session.message}\nKey in the frequency for the chore in a month (4 weeks).`,
-      Markup.inlineKeyboard(addChoreMarkup).oneTime().resize().extra()
-    );
-    await ctx.scene.leave("addChoreTime");
     ctx.scene.enter("addChoreFrequency");
   }
 });
@@ -210,56 +212,36 @@ addChoreFrequency.on("text", async (ctx) => {
     );
   } else {
     ctx.session.message +=
-      "Frequency: " + ctx.session.chore.time + " times per month\n";
-    ctx.reply(
-      `You have added:\n\n${ctx.session.message}\nKey in the number of people required for the chore.`,
-      Markup.inlineKeyboard(addChoreMarkup).oneTime().resize().extra()
-    );
-    await ctx.scene.leave("addChoreFrequency");
-    ctx.scene.enter("addChorePeople");
-  }
-});
-
-addChorePeople.on("text", async (ctx) => {
-  ctx.session.chore.people = parseInt(ctx.update.message.text.trim());
-  if (isNaN(ctx.session.chore.people)) {
-    ctx.reply(`You did not enter a number. Please try again.`);
-  } else if (isNaN(ctx.session.chore.people)) {
-    ctx.reply(
-      `The number you entered is less than or equal to zero. Please try again.`
-    );
-  } else {
-    ctx.session.message += "People: " + ctx.session.chore.people + "\n";
+      "Frequency: " + ctx.session.chore.frequency + " times per month\n";
     ctx.reply(
       `You have added:\n\n${ctx.session.message}\nWhat do you want to do next?`,
       Markup.inlineKeyboard([
-        [Markup.callbackButton("✅ Submit", "submit_chore")],
+        [Markup.callbackButton("✅ Submit", "submitChore")],
         ...addChoreMarkup,
       ])
         .oneTime()
         .resize()
         .extra()
     );
-    await ctx.scene.leave("addChorePeople");
+    await ctx.scene.leave("addChoreFrequency");
   }
 });
 
-bot.action("submit_chore", (ctx) => {
+bot.action("submitChore", (ctx) => {
   const myChore = new Chore({
     name: ctx.session.chore.name,
     effort: ctx.session.chore.effort,
-    time: ctx.session.chore.time,
-    people: ctx.session.chore.people,
+    frequency: ctx.session.chore.frequency,
   });
 
   myChore.save();
 
-  ctx.reply(
+  ctx.editMessageText(
     `The chore has been added!\n\n${ctx.session.message}`,
     Markup.inlineKeyboard([
       [
-        Markup.callbackButton("➕ Add another chore", "add_chores"),
-        Markup.callbackButton("👁️ View chores", "view_chores"),
+        Markup.callbackButton("➕ Add chore", "addChores"),
+        Markup.callbackButton("👁️ View chores", "viewChores"),
       ],
       [mainMenuButton],
     ])
@@ -275,7 +257,7 @@ bot.action("submit_chore", (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-edit.action("view_chores", async (ctx) => {
+bot.action("viewChores", async (ctx) => {
   const existingChores = await Chore.find();
 
   const choresList = existingChores.map((x) => [
@@ -295,7 +277,7 @@ edit.action("view_chores", async (ctx) => {
     ctx.editMessageText(
       "There are currently no chores. Please add chores to view them.",
       Markup.inlineKeyboard([
-        [Markup.callbackButton("➕ Add Chores", "add_chores"), mainMenuButton],
+        [Markup.callbackButton("➕ Add Chores", "addChores"), mainMenuButton],
       ])
         .oneTime()
         .resize()
@@ -305,7 +287,7 @@ edit.action("view_chores", async (ctx) => {
 });
 
 const viewChoreMarkup = [
-  [Markup.callbackButton("👁️ View chores", "view_chores"), mainMenuButton],
+  [Markup.callbackButton("👁️ View chores", "viewChores"), mainMenuButton],
 ];
 
 viewChore.action(/^</, async (ctx) => {
@@ -316,21 +298,15 @@ viewChore.action(/^</, async (ctx) => {
     `The chore in detail is:\n
 Name: ${ctx.session.existingChore.name}
 Effort points: ${ctx.session.existingChore.effort}
-Time taken: ${ctx.session.existingChore.time}
-Frequency (times per month): ${ctx.session.existingChore.frequency}
-Number of people required: ${ctx.session.existingChore.people}\n
+Frequency (times per month): ${ctx.session.existingChore.frequency}\n
 Do you want to edit any information?`,
     Markup.inlineKeyboard([
       [
         Markup.callbackButton("Name", "<name"),
         Markup.callbackButton("Effort Points", "<effort"),
       ],
-      [
-        Markup.callbackButton("Time taken", "<time"),
-        Markup.callbackButton("Frequency", "<frequency"),
-      ],
-      [Markup.callbackButton("Number of people", "<people")],
-      [Markup.callbackButton("Delete this chore", "delete_chore")],
+      [Markup.callbackButton("Frequency", "<frequency")],
+      [Markup.callbackButton("Delete this chore", "deleteChore")],
       ...viewChoreMarkup,
     ])
       .oneTime()
@@ -341,7 +317,7 @@ Do you want to edit any information?`,
   ctx.scene.enter("editChore");
 });
 
-editChore.action("delete_chore", async (ctx) => {
+editChore.action("deleteChore", async (ctx) => {
   await Chore.deleteOne({ name: ctx.session.existingChore.name });
   ctx.editMessageText(
     `The chore "${ctx.session.existingChore.name}" has been removed.`,
@@ -371,30 +347,12 @@ editChore.on("text", async (ctx) => {
         );
       }
       break;
-    case "time":
-      ctx.session.value = parseInt(ctx.update.message.text.trim());
-      if (success) {
-        await Chore.updateOne(
-          { name: ctx.session.existingChore.name },
-          { time: ctx.session.value }
-        );
-      }
-      break;
     case "frequency":
       ctx.session.value = parseInt(ctx.update.message.text.trim());
       if (success) {
         await Chore.updateOne(
           { name: ctx.session.existingChore.name },
           { frequency: ctx.session.value }
-        );
-      }
-      break;
-    case "people":
-      ctx.session.value = parseInt(ctx.update.message.text.trim());
-      if (success) {
-        await Chore.updateOne(
-          { name: ctx.session.existingChore.name },
-          { people: ctx.session.value }
         );
       }
       break;
@@ -407,7 +365,7 @@ editChore.on("text", async (ctx) => {
   }
   if (success || ctx.session.change === "name") {
     ctx.reply(
-      `"${ctx.session.change}" has been updated to ${ctx.session.value}.`,
+      `"${ctx.session.change}" has been updated to "${ctx.session.value}."`,
       Markup.inlineKeyboard(viewChoreMarkup).oneTime().resize().extra()
     );
     await ctx.scene.leave("editChore");
@@ -422,7 +380,7 @@ editChore.on("text", async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-edit.action("add_users", (ctx) => {
+bot.action("addUsers", (ctx) => {
   ctx.editMessageText("Enter the name of the user you would like to add.");
   ctx.session.new = true;
   ctx.scene.enter("addUserName");
@@ -444,8 +402,8 @@ addUserName.on("text", async (ctx) => {
       `You have requested to ${ctx.session.action}: ${ctx.session.username}`,
       Markup.inlineKeyboard([
         [
-          Markup.callbackButton("Submit Name", "submit_name"),
-          Markup.callbackButton("Re-type Name", "add_users"),
+          Markup.callbackButton("Submit Name", "submitName"),
+          Markup.callbackButton("Re-type Name", "addUsers"),
         ],
         [mainMenuButton],
       ])
@@ -457,7 +415,7 @@ addUserName.on("text", async (ctx) => {
   }
 });
 
-bot.action("submit_name", async (ctx) => {
+bot.action("submitName", async (ctx) => {
   if (ctx.session.new) {
     const myUser = new User({
       name: ctx.session.username,
@@ -477,8 +435,8 @@ bot.action("submit_name", async (ctx) => {
     `${ctx.session.username} has been ${ctx.session.action}.`,
     Markup.inlineKeyboard([
       [
-        Markup.callbackButton("➕ Add User", "add_users"),
-        Markup.callbackButton("👁️ View Users", "view_users"),
+        Markup.callbackButton("➕ Add User", "addUsers"),
+        Markup.callbackButton("👁️ View Users", "viewUsers"),
       ],
       [mainMenuButton],
     ])
@@ -495,7 +453,7 @@ bot.action("submit_name", async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-edit.action("view_users", async (ctx) => {
+bot.action("viewUsers", async (ctx) => {
   ctx.session.existingUsers = await User.find();
   ctx.session.userList = ctx.session.existingUsers.map((x) => [
     Markup.callbackButton(x.name, "<" + x.name),
@@ -507,9 +465,9 @@ edit.action("view_users", async (ctx) => {
         (x) => `\n${x.name}: ${x.points}`
       )}`,
       Markup.inlineKeyboard([
-        [Markup.callbackButton("➕ Add a user", "add_user")],
-        [Markup.callbackButton("Update user data", "update_user")],
-        [Markup.callbackButton("Delete a user", "delete_user")],
+        [Markup.callbackButton("➕ Add a user", "addUsers")],
+        [Markup.callbackButton("Update user data", "updateUser")],
+        [Markup.callbackButton("Delete a user", "deleteUser")],
         [mainMenuButton],
       ])
         .oneTime()
@@ -520,7 +478,7 @@ edit.action("view_users", async (ctx) => {
     ctx.editMessageText(
       "There are currently no users. Please add users to view them.",
       Markup.inlineKeyboard([
-        [Markup.callbackButton("➕ Add Users", "add_users")],
+        [Markup.callbackButton("➕ Add Users", "addUsers")],
         [mainMenuButton],
       ])
         .oneTime()
@@ -530,7 +488,7 @@ edit.action("view_users", async (ctx) => {
   }
 });
 
-bot.action("update_user", async (ctx) => {
+bot.action("updateUser", async (ctx) => {
   ctx.editMessageText(
     `Which user would you like to edit?`,
     Markup.inlineKeyboard([...ctx.session.userList, [mainMenuButton]])
@@ -548,7 +506,7 @@ updateUser.action(/^</, async (ctx) => {
   ctx.editMessageText(
     `What would you like to change?`,
     Markup.inlineKeyboard([
-      [Markup.callbackButton("✂️ Edit name", "edit_name")],
+      [Markup.callbackButton("✂️ Edit name", "editName")],
       [mainMenuButton],
     ])
       .oneTime()
@@ -557,13 +515,13 @@ updateUser.action(/^</, async (ctx) => {
   );
 });
 
-updateUser.action("edit_name", async (ctx) => {
+updateUser.action("editName", async (ctx) => {
   await ctx.scene.enter("addUserName");
   ctx.reply(`Please enter the new name for ${ctx.session.updateUser}`);
   ctx.session.new = false;
 });
 
-bot.action("delete_user", async (ctx) => {
+bot.action("deleteUser", async (ctx) => {
   ctx.editMessageText(
     `Which user would you like to delete?`,
     Markup.inlineKeyboard([...ctx.session.userList, [mainMenuButton]])
@@ -580,7 +538,7 @@ deleteUser.action(/^</, async (ctx) => {
   ctx.reply(
     `The user "${ctx.session.deleteUser}" has been removed.`,
     Markup.inlineKeyboard([
-      [Markup.callbackButton("Delete Another", "delete_user")],
+      [Markup.callbackButton("Delete Another", "deleteUser")],
       [mainMenuButton],
     ])
       .oneTime()
@@ -702,11 +660,11 @@ selectDate.on("callback_query", async (ctx) => {
       ),
       [
         Markup.callbackButton(
-          `${ctx.session.check.length ? "Des" : "S"}elect All`,
-          "select_all"
+          `${ctx.session.check.length ? "S" : "Des"}elect All`,
+          "selectAll"
         ),
       ],
-      [Markup.callbackButton("✅ Submit", "submit_timings")],
+      [Markup.callbackButton("✅ Submit", "submitTimings")],
       [
         Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
         mainMenuButton,
@@ -719,14 +677,17 @@ selectDate.on("callback_query", async (ctx) => {
 });
 
 selectTime.action(/^</, async (ctx) => {
-  ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
   const clicked = ctx.update.callback_query.data.replace("<", "");
 
-  ctx.session.times.map((x) => {
-    if (x.time === clicked) {
-      x.clicked = x.clicked ? false : true;
-    }
-  });
+  await Promise.all(
+    ctx.session.times.map((x) => {
+      if (x.time === clicked) {
+        x.clicked = x.clicked ? false : true;
+      }
+    })
+  );
+
+  ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
 
   ctx.editMessageText(
     "Choose the times you are unavailable:",
@@ -742,11 +703,11 @@ selectTime.action(/^</, async (ctx) => {
       ),
       [
         Markup.callbackButton(
-          `${ctx.session.check.length ? "Des" : "S"}elect All`,
-          "select_all"
+          `${ctx.session.check.length ? "S" : "Des"}elect All`,
+          "selectAll"
         ),
       ],
-      [Markup.callbackButton("✅ Submit", "submit_timings")],
+      [Markup.callbackButton("✅ Submit", "submitTimings")],
       [
         Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
         mainMenuButton,
@@ -758,7 +719,7 @@ selectTime.action(/^</, async (ctx) => {
   );
 });
 
-selectTime.action("select_all", async (ctx) => {
+selectTime.action("selectAll", async (ctx) => {
   ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
 
   if (ctx.session.check.length) {
@@ -786,10 +747,10 @@ selectTime.action("select_all", async (ctx) => {
       [
         Markup.callbackButton(
           `${ctx.session.check.length ? "Des" : "S"}elect All`,
-          "select_all"
+          "selectAll"
         ),
       ],
-      [Markup.callbackButton("✅ Submit", "submit_timings")],
+      [Markup.callbackButton("✅ Submit", "submitTimings")],
       [
         Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
         mainMenuButton,
@@ -801,7 +762,7 @@ selectTime.action("select_all", async (ctx) => {
   );
 });
 
-selectTime.action("submit_timings", async (ctx) => {
+selectTime.action("submitTimings", async (ctx) => {
   const availabileTimings = [];
   ctx.session.times.map((x) => {
     if (!x.clicked) {
@@ -859,10 +820,48 @@ bot.action("sameUserAvailability", (ctx) => {
 
 ////////////////////////////////////////
 //                                    //
-//      Assigning Chores Scene        //
+//      Outstanding Chores Scene      //
 //                                    //
 ////////////////////////////////////////
 
-bot.action("assign", async (ctx) => {});
+bot.action("outstanding", async (ctx) => {
+  const chores = await Chore.find();
+  const history = await History.find();
+
+  const outstanding = [];
+
+  await Promise.all(
+    chores.map(async (x) => {
+      const lastCompleted = history.filter((e) => x.name === e.name);
+
+      if (
+        !lastCompleted.length ||
+        dateDiff(
+          lastCompleted[0].completeDate,
+          new Date().toLocaleDateString("en-GB")
+        ) >
+          28 / lastCompleted[0].frequency
+      ) {
+        outstanding.push({
+          name: x.name,
+          effort: x.effort,
+          last: lastCompleted.length ? lastCompleted[0].completeDate : "None",
+        });
+      }
+    })
+  );
+
+  if (outstanding.length) {
+    ctx.editMessageText(
+      `The outstanding chores are:${outstanding.map(
+        (x) =>
+          `\n\n*Name*: _${x.name}_, *Effort*: _${x.effort}/10_, *Recent*: _${x.last}_`
+      )}`,
+      Extra.markdown()
+    );
+  } else {
+    ctx.editMessageText(`There are no chores to assign.`);
+  }
+});
 
 bot.launch();
