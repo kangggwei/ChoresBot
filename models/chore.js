@@ -6,6 +6,9 @@ const choreSchema = new Schema({
   name: { type: String, required: true },
   effort: { type: Number, required: true },
   frequency: { type: Number, required: true },
+  person: { type: String },
+  assignDate: { type: String },
+  completeDate: { type: String },
 });
 
 const Chore = mongoose.model("Chore", choreSchema, "chore");
