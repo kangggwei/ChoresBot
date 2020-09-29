@@ -8,7 +8,6 @@ const choreSchema = new Schema({
   frequency: { type: Number, required: true },
   person: { type: String },
   assignDate: { type: String },
-  completeDate: { type: String },
 });
 
 const Chore = mongoose.model("Chore", choreSchema, "chore");

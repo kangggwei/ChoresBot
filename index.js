@@ -65,6 +65,11 @@ function split(array, n) {
   return res;
 }
 
+function get_date(days = 0) {
+  const dt = new Date().getTime();
+  return new Date(dt + days * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB");
+}
+
 function toDate(dateString) {
   const full = dateString.split("/");
   return new Date(full[2], full[1], full[0]);
@@ -217,6 +222,10 @@ addChoreFrequency.on("text", async (ctx) => {
   ctx.session.chore.frequency = parseInt(ctx.update.message.text.trim());
   if (isNaN(ctx.session.chore.frequency)) {
     ctx.reply(`You did not enter a number. Please try again.`);
+  } else if (ctx.session.chore.frequency > 28) {
+    ctx.reply(
+      `The number you entered is greater than 28 (more than once a day). Please try again.`
+    );
   } else if (ctx.session.chore.frequency < 0) {
     ctx.reply(
       `The number you entered is less than or equal to zero. Please try again.`
@@ -863,6 +872,7 @@ async function getOustanding() {
           name: x.name,
           effort: x.effort,
           last: x.completeDate ? x.completeDate : "None",
+          person: x.person,
         });
       }
     })
@@ -899,37 +909,58 @@ bot.action("outstanding", async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
+async function getAssignments() {
+  const chores = await Chore.find({ frequency: { $lte: 14 } });
+
+  const tasks = [];
+
+  await Promise.all(
+    chores.map(async (x) => {
+      if (!x.assignDate || daysAgo(x.assignDate) > 0) {
+        const daysBetween = 28 / x.frequency;
+        if (daysAgo(x.assignDate) < daysBetween) {
+          tasks.push({
+            name: x.name,
+            effort: x.effort,
+            next: get_date(daysAgo(x.assignDate) + daysBetween),
+            person: x.person,
+          });
+        } else {
+          tasks.push({
+            name: x.name,
+            effort: x.effort,
+            next: get_date(1),
+            person: x.person,
+          });
+        }
+      }
+    })
+  );
+
+  return tasks;
+}
+
 bot.action("assign", async (ctx) => {
-  const outstandingChores = await getOustanding();
+  const outstandingChores = await getAssignments();
 
   if (outstandingChores.length) {
     const users = await User.find();
     users.sort((x, y) => x.points - y.points);
     outstandingChores.sort((x, y) => x.effort - y.effort);
 
-    for (chore in outstandingChores) {
+    for (var i = 0; i < outstandingChores.length; i++) {
       const assignedUser = users.shift();
       await Chore.updateOne(
-        { name: chore.name },
-        { person: assignedUser.name }
+        { name: outstandingChores[i].name },
+        { person: assignedUser.name, assignDate: outstandingChores[i].next }
       );
       users.push(assignedUser);
+      await User.updateOne(
+        { name: assignedUser.name },
+        { points: assignedUser.points + outstandingChores[i].effort }
+      );
     }
-
-    // ctx.replyWithMarkdown(
-    //   `The outstanding chores are:${outstanding.map(
-    //     (x) =>
-    //       `\n\n*Name*: _${x.name}_, *Effort*: _${x.effort}/10_, *Recent*: _${x.last}_`
-    //   )}`,
-    //   Markup.inlineKeyboard([
-    //     [Markup.callbackButton("Assign Chores", "assign")],
-    //     [mainMenuButton],
-    //   ])
-    //     .oneTime()
-    //     .resize()
-    //     .extra()
-    // );
-    // ctx.editMessageReplyMarkup();
+    ctx.editMessageText(`Chores have been assigned.`);
   } else {
     ctx.editMessageText(`There are no chores to assign.`);
   }
