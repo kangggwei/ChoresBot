@@ -857,16 +857,23 @@ async function getOustanding() {
   const outstanding = [];
 
   await Promise.all(
-    chores.map(async (x) => {
-      if (!x.completeDate || daysAgo(x.completeDate) > 28 / x.frequency) {
+    chores
+    .map(async (x) => {
+      if (daysAgo(x.assignDate) <= 0) {
         outstanding.push({
+          person: x.person,
           name: x.name,
-          effort: x.effort,
-          last: x.completeDate ? x.completeDate : "None",
+          assignDate: x.assignDate,
         });
       }
     })
   );
+
+  outstanding
+    .sort((a, b) => {
+      return a.person.localeCompare(b.person) || dateDiff(b.assignDate, a.assignDate);
+    }  
+  )
 
   return outstanding;
 }
@@ -877,7 +884,7 @@ bot.action("outstanding", async (ctx) => {
     ctx.replyWithMarkdown(
       `The outstanding chores are:${outstanding.map(
         (x) =>
-          `\n\n*Name*: _${x.name}_, *Effort*: _${x.effort}/10_, *Recent*: _${x.last}_`
+          `\n\n*Name*: _${x.person}_, *Chore*: _${x.name}_, *Date*: _${x.assignDate}_`
       )}`,
       Markup.inlineKeyboard([
         [Markup.callbackButton("Assign Chores", "assign")],
