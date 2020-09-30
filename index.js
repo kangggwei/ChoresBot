@@ -818,29 +818,22 @@ async function getAssignments() {
 // if person not available: assign to the lowest points person
 // if nobody available on that day, push chore forward by a day and repeat
 async function checkAvailability(chore, users) {
-  let i = 0;
-  let available = false;
-  if (dateDiff(get_date(), chore.next) >= 7) {
-    return users[i];
+  if (dateDiff(get_date(), chore.next) > 7) {
+    return users[0];
   }
-
-  do {
-    available = await Days.findOne({
+  for (var i = 0; i < users.length; i++) {
+    const available = await Days.findOne({
       name: users[i].name,
       date: chore.next,
       available: true,
     });
-    i++;
-  } while (!available && i < users.length);
-
-  if (!available) {
-    chore.next = next_date(chore.next);
-    if (dateDiff(get_date(), chore.next) >= 7) {
+    if (available) {
       return users[i];
     }
-    return checkAvailability(chore, users);
   }
-  return users[i];
+
+  chore.next = next_date(chore.next);
+  return checkAvailability(chore, users);
 }
 
 bot.action("assign", async (ctx) => {
