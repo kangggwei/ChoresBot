@@ -893,7 +893,7 @@ bot.action("assign", async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-const adminID = [27655697, 207958667];
+const adminID = process.env.ADMINID.split(" ");
 
 const adminBot = new Composer();
 
