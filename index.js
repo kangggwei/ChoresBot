@@ -11,7 +11,6 @@ const uri = process.env.ATLAS_URI;
 const User = require("./models/user");
 const Chore = require("./models/chore");
 const Days = require("./models/days");
-const { parseFile } = require("fast-csv");
 
 mongoose.connect(uri, {
   useNewUrlParser: true,
@@ -80,7 +79,7 @@ function next_date(date, days = 1) {
 
 function toDate(dateString) {
   const full = dateString.split("/");
-  return new Date(full[2], full[1] - 1, full[0]);
+  return new Date(full[2], full[0] - 1, full[1]);
 }
 
 function dateDiff(first, second) {
