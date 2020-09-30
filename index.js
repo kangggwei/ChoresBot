@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const { Telegraf } = require("telegraf");
+const { Telegraf, Composer } = require("telegraf");
 const Stage = require("telegraf/stage");
 const Markup = require("telegraf/markup");
 const session = require("telegraf/session");
@@ -43,8 +43,8 @@ const updateUser = new Scene("updateUser");
 stage.register(updateUser);
 const selectAvailability = new Scene("selectAvailability");
 stage.register(selectAvailability);
-const selectTime = new Scene("selectTime");
-stage.register(selectTime);
+const admin = new Scene("admin");
+stage.register(admin);
 
 bot.use(Telegraf.log());
 bot.use(session());
@@ -236,7 +236,7 @@ addChoreFrequency.on("text", async (ctx) => {
     ctx.replyWithMarkdown(
       `You have added:\n\n_${ctx.session.message}_\nWhat do you want to do next?`,
       Markup.inlineKeyboard([
-        [Markup.callbackButton("✅ Submit", "submitChore")],
+        [Markup.callbackButton("📝 Submit", "submitChore")],
         ...addChoreMarkup,
       ])
         .oneTime()
@@ -610,7 +610,7 @@ bot.action("availability", async (ctx) => {
   ctx.scene.enter("selectAvailability");
 });
 
-selectAvailability.on("callback_query", (ctx) => {
+selectAvailability.on("callback_query", async (ctx) => {
   ctx.session.updateUser = ctx.update.callback_query.data.replace("<", "");
   ctx.scene.enter("selectDate");
   const dt = new Date().getTime();
@@ -618,93 +618,36 @@ selectAvailability.on("callback_query", (ctx) => {
   ctx.session.dates = [];
 
   for (let i = 1; i < 8; i++) {
-    ctx.session.dates.push(
-      new Date(dt + i * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB")
-    );
+    ctx.session.dates.push({
+      date: new Date(dt + i * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB"),
+    });
   }
 
-  ctx.editMessageText(
-    "Choose the date you would like to fill in:",
-    Markup.inlineKeyboard(
-      ctx.session.dates.map((x) => [Markup.callbackButton(x, x)])
-    )
-      .oneTime()
-      .resize()
-      .extra()
+  await Promise.all(
+    ctx.session.dates.map(async (x) => {
+      const existingEntry = await Days.findOne({
+        name: ctx.session.updateUser,
+        date: x.date,
+      });
+
+      if (existingEntry) {
+        x.clicked = existingEntry.available ? true : false;
+      } else x.clicked = false;
+    })
   );
-});
 
-selectDate.on("callback_query", async (ctx) => {
-  await ctx.scene.leave("selectDate");
-  ctx.scene.enter("selectTime");
-
-  // selectedDate: day, month, year
-  ctx.session.selectedDate = ctx.update.callback_query.data;
-
-  ctx.session.existingEntry = await Days.findOne({
-    name: ctx.session.updateUser,
-    date: ctx.session.selectedDate,
-  });
-
-  let x = 60; //minutes interval
-  ctx.session.times = []; // time array
-  let curr_time = 8 * 60; // start time
-  let ap = ["AM", "PM"]; // AM-PM
-
-  //loop to increment the time and push results in array
-  for (let i = 0; curr_time < 22 * 60; i++) {
-    let hour = Math.floor(curr_time / 60); // get hours of day in 0-24 format
-    let min = curr_time % 60; // get minutes of the hour in 0-55 format
-    if (hour == 12) {
-      ctx.session.times.push({
-        time: "12" + ":" + ("0" + min).slice(-2) + ap[Math.floor(hour / 12)],
-      }); // pushing data in array in [00:00 - 12:00 AM/PM format]
-    } else {
-      ctx.session.times.push({
-        time:
-          ("0" + (hour % 12)).slice(-2) +
-          ":" +
-          ("0" + min).slice(-2) +
-          ap[Math.floor(hour / 12)],
-      }); // pushing data in array in [00:00 - 12:00 AM/PM format]
-    }
-    curr_time = curr_time + x;
-  }
-
-  if (ctx.session.existingEntry) {
-    ctx.session.times.map(
-      (x) =>
-        (x.clicked = ctx.session.existingEntry.timings.includes(x.time)
-          ? false
-          : true)
-    );
-  }
-
-  ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
+  ctx.session.dateButtons = ctx.session.dates.map((x) =>
+    Markup.callbackButton(`${x.clicked ? "✅ " : ""}${x.date}`, `<${x.date}`)
+  );
+  ctx.session.dateButtons.push(
+    Markup.callbackButton("📝 Submit", "submitDates")
+  );
 
   ctx.editMessageText(
-    "Choose the times you are unavailable:",
+    `Choose the dates ${ctx.session.updateUser} is available:`,
     Markup.inlineKeyboard([
-      ...split(
-        ctx.session.times.map((x) =>
-          Markup.callbackButton(
-            `${x.clicked ? "❌ " : ""}${x.time}`,
-            `<${x.time}`
-          )
-        ),
-        2
-      ),
-      [
-        Markup.callbackButton(
-          `${ctx.session.check.length ? "S" : "Des"}elect All`,
-          "selectAll"
-        ),
-      ],
-      [Markup.callbackButton("✅ Submit", "submitTimings")],
-      [
-        Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
-        mainMenuButton,
-      ],
+      ...split(ctx.session.dateButtons, 2),
+      [Markup.callbackButton("⬅️ Back", "availability"), mainMenuButton],
     ])
       .oneTime()
       .resize()
@@ -712,146 +655,70 @@ selectDate.on("callback_query", async (ctx) => {
   );
 });
 
-selectTime.action(/^</, async (ctx) => {
-  const clicked = ctx.update.callback_query.data.replace("<", "");
+selectDate.action(/^</, async (ctx) => {
+  // selectedDate: day, month, year
+  const selectedDate = ctx.update.callback_query.data.replace("<", "");
 
+  ctx.session.dates.map((x) => {
+    if (x.date === selectedDate) {
+      x.clicked = x.clicked ? false : true;
+    }
+  });
+
+  ctx.session.dateButtons = ctx.session.dates.map((x) =>
+    Markup.callbackButton(`${x.clicked ? "✅ " : ""}${x.date}`, `<${x.date}`)
+  );
+  ctx.session.dateButtons.push(
+    Markup.callbackButton("📝 Submit", "submitDates")
+  );
+
+  ctx.editMessageText(
+    "Choose the dates you are available:",
+    Markup.inlineKeyboard([
+      ...split(ctx.session.dateButtons, 2),
+      [Markup.callbackButton("⬅️ Back", "availability"), mainMenuButton],
+    ])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+});
+
+selectDate.action("submitDates", async (ctx) => {
   await Promise.all(
-    ctx.session.times.map((x) => {
-      if (x.time === clicked) {
-        x.clicked = x.clicked ? false : true;
+    ctx.session.dates.map(async (x) => {
+      const existingEntry = await Days.findOne({
+        name: ctx.session.updateUser,
+        date: x.date,
+      });
+      if (existingEntry) {
+        await Days.updateOne(
+          { name: ctx.session.updateUser, date: x.date },
+          { available: x.clicked, updatedBy: ctx.from.username }
+        );
+      } else {
+        const myDays = new Days({
+          name: ctx.session.updateUser,
+          date: x.date,
+          available: x.clicked,
+          updatedBy: ctx.from.username,
+        });
+        myDays.save();
       }
     })
   );
 
-  ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
-
   ctx.editMessageText(
-    "Choose the times you are unavailable:",
+    `You have updated ${ctx.session.updateUser}'s availability.`,
     Markup.inlineKeyboard([
-      ...split(
-        ctx.session.times.map((x) =>
-          Markup.callbackButton(
-            `${x.clicked ? "❌ " : ""}${x.time}`,
-            `<${x.time}`
-          )
-        ),
-        2
-      ),
-      [
-        Markup.callbackButton(
-          `${ctx.session.check.length ? "S" : "Des"}elect All`,
-          "selectAll"
-        ),
-      ],
-      [Markup.callbackButton("✅ Submit", "submitTimings")],
-      [
-        Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
-        mainMenuButton,
-      ],
-    ])
-      .oneTime()
-      .resize()
-      .extra()
-  );
-});
-
-selectTime.action("selectAll", async (ctx) => {
-  ctx.session.check = ctx.session.times.filter((x) => x.clicked === false);
-
-  if (ctx.session.check.length) {
-    ctx.session.times.map((x) => {
-      x.clicked = true;
-    });
-  } else {
-    ctx.session.times.map((x) => {
-      x.clicked = false;
-    });
-  }
-
-  ctx.editMessageText(
-    "Choose the times you are unavailable:",
-    Markup.inlineKeyboard([
-      ...split(
-        ctx.session.times.map((x) =>
-          Markup.callbackButton(
-            `${x.clicked ? "❌ " : ""}${x.time}`,
-            `<${x.time}`
-          )
-        ),
-        2
-      ),
-      [
-        Markup.callbackButton(
-          `${ctx.session.check.length ? "Des" : "S"}elect All`,
-          "selectAll"
-        ),
-      ],
-      [Markup.callbackButton("✅ Submit", "submitTimings")],
-      [
-        Markup.callbackButton("⬅️ Back", "sameUserAvailability"),
-        mainMenuButton,
-      ],
-    ])
-      .oneTime()
-      .resize()
-      .extra()
-  );
-});
-
-selectTime.action("submitTimings", async (ctx) => {
-  const availabileTimings = [];
-  ctx.session.times.map((x) => {
-    if (!x.clicked) {
-      availabileTimings.push(x.time);
-    }
-  });
-
-  if (ctx.session.existingEntry) {
-    await Days.updateOne(
-      { name: ctx.session.updateUser, date: ctx.session.selectedDate },
-      { timings: availabileTimings, updatedBy: ctx.from.username }
-    );
-  } else {
-    const myDays = new Days({
-      name: ctx.session.updateUser,
-      date: ctx.session.selectedDate,
-      timings: availabileTimings,
-      updatedBy: ctx.from.username,
-    });
-    myDays.save();
-  }
-
-  ctx.editMessageText(
-    `You have updated ${ctx.session.updateUser}'s unavailable timings for ${ctx.session.selectedDate}.`,
-    Markup.inlineKeyboard([
-      [
-        Markup.callbackButton(
-          `Update ${ctx.session.updateUser}'s Availability`,
-          "sameUserAvailability"
-        ),
-      ],
-      [Markup.callbackButton(`Update Availability`, "availability")],
+      [Markup.callbackButton(`Update Others`, "availability")],
       [mainMenuButton],
     ])
       .oneTime()
       .resize()
       .extra()
   );
-  await ctx.scene.leave("selectTime");
-});
-
-bot.action("sameUserAvailability", (ctx) => {
-  ctx.scene.enter("selectDate");
-
-  ctx.editMessageText(
-    "Choose the date you would like to fill in:",
-    Markup.inlineKeyboard(
-      ctx.session.dates.map((x) => [Markup.callbackButton(x, x)])
-    )
-      .oneTime()
-      .resize()
-      .extra()
-  );
+  await ctx.scene.leave("selectDate");
 });
 
 ////////////////////////////////////////
@@ -1015,5 +882,64 @@ bot.action("assign", async (ctx) => {
     );
   }
 });
+
+////////////////////////////////////////
+//                                    //
+//     Clear Availability Cache       //
+//                                    //
+////////////////////////////////////////
+
+const adminID = [27655697];
+
+const adminBot = new Composer();
+
+async function clearCache(day = 0) {
+  const dates = await Days.find();
+
+  await Promise.all(
+    dates.map(async (x) => {
+      if (daysAgo(x.date) > day) await Days.deleteMany({ date: x.date });
+    })
+  );
+}
+
+adminBot.command("clear", (ctx) => {
+  ctx.session.clearAll = false;
+
+  ctx.reply(
+    `Schedules before ${new Date().toLocaleDateString(
+      "en-GB"
+    )} will be deleted. Type in the password to confirm.`
+  );
+  ctx.scene.enter("admin");
+});
+
+adminBot.command("clearAll", (ctx) => {
+  ctx.session.clearAll = true;
+
+  ctx.reply(`All schedules will be deleted. Type in the password to confirm.`);
+  ctx.scene.enter("admin");
+});
+
+admin.on("text", async (ctx) => {
+  if (ctx.update.message.text.trim() === process.env.ADMINPW) {
+    if (ctx.session.clearAll) {
+      await Days.deleteMany();
+      ctx.reply(`All schedules have been deleted.`);
+    } else {
+      await clearCache();
+      ctx.reply(
+        `Schedules before ${new Date().toLocaleDateString(
+          "en-GB"
+        )} have been deleted.`
+      );
+    }
+    await ctx.scene.leave("admin");
+  } else {
+    ctx.reply(`You have entered the wrong password.`);
+  }
+});
+
+bot.use(Composer.acl(adminID, adminBot));
 
 bot.launch();
