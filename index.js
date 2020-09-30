@@ -894,10 +894,7 @@ bot.action("outstanding", async (ctx) => {
         (x) =>
           `\n\n*Name*: _${x.person}_, *Chore*: _${x.name}_, *Date*: _${x.assignDate}_`
       )}`,
-      Markup.inlineKeyboard([
-        [Markup.callbackButton("Assign Chores", "assign")],
-        [mainMenuButton],
-      ])
+      Markup.inlineKeyboard([[mainMenuButton]])
         .oneTime()
         .resize()
         .extra()
@@ -913,31 +910,29 @@ bot.action("outstanding", async (ctx) => {
 //        Assigning Chores Scene      //
 //                                    //
 ////////////////////////////////////////
-
+// function to get chores that need to be assigned
 async function getAssignments() {
-  const chores = await Chore.find({ frequency: { $lte: 14 } });
+  const chores = await Chore.find({ frequency: { $lt: 28 } });
 
   const tasks = [];
 
   await Promise.all(
     chores.map(async (x) => {
-      if (!x.assignDate || daysAgo(x.assignDate) > 0) {
-        const daysBetween = 28 / x.frequency;
-        if (daysAgo(x.assignDate) < daysBetween) {
-          tasks.push({
-            name: x.name,
-            effort: x.effort,
-            next: get_date(daysAgo(x.assignDate) + daysBetween),
-            person: x.person,
-          });
-        } else {
-          tasks.push({
-            name: x.name,
-            effort: x.effort,
-            next: get_date(1),
-            person: x.person,
-          });
-        }
+      const daysBetween = 28 / x.frequency;
+      if (!x.assignDate || daysAgo(x.assignDate) > daysBetween) {
+        tasks.push({
+          name: x.name,
+          effort: x.effort,
+          next: get_date(1),
+          person: x.person,
+        });
+      } else if (daysAgo(x.assignDate) > 0) {
+        tasks.push({
+          name: x.name,
+          effort: x.effort,
+          next: get_date(daysBetween - daysAgo(x.assignDate)),
+          person: x.person,
+        });
       }
     })
   );
@@ -945,29 +940,57 @@ async function getAssignments() {
   return tasks;
 }
 
+// function to check if person is free for the day assigned
+// if not available, a new person will be assigned
+async function checkAvailability() {}
+
 bot.action("assign", async (ctx) => {
   const outstandingChores = await getAssignments();
+
+  const assigned = [];
 
   if (outstandingChores.length) {
     const users = await User.find();
     users.sort((x, y) => x.points - y.points);
     outstandingChores.sort((x, y) => x.effort - y.effort);
 
-    for (var i = 0; i < outstandingChores.length; i++) {
+    outstandingChores.forEach(async (chore) => {
       const assignedUser = users.shift();
       await Chore.updateOne(
-        { name: outstandingChores[i].name },
-        { person: assignedUser.name, assignDate: outstandingChores[i].next }
+        { name: chore.name },
+        { person: assignedUser.name, assignDate: chore.next }
       );
       users.push(assignedUser);
       await User.updateOne(
         { name: assignedUser.name },
-        { points: assignedUser.points + outstandingChores[i].effort }
+        { points: assignedUser.points + chore.effort }
       );
-    }
-    ctx.editMessageText(`Chores have been assigned.`);
+
+      assigned.push({ chore: chore, person: assignedUser.name });
+    });
+    ctx.editMessageText(
+      `Chores have been assigned.\n${assigned.map(
+        (x) => `\n${x.person}: ${x.chore}`
+      )}`,
+      Markup.inlineKeyboard([
+        [Markup.callbackButton("Outstanding Chores", "outstanding")],
+        [mainMenuButton],
+      ])
+        .oneTime()
+        .resize()
+        .extra()
+    );
   } else {
-    ctx.editMessageText(`There are no chores to assign.`);
+    ctx.editMessageText(
+      `There are no chores to assign.`,
+      Markup.inlineKeyboard([
+        [Markup.callbackButton("Outstanding Chores", "outstanding")],
+        [mainMenuButton],
+      ])
+        .oneTime()
+        .resize()
+        .extra()
+    );
   }
 });
 
