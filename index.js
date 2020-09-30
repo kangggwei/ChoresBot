@@ -741,7 +741,9 @@ async function getOustanding() {
 
   await Promise.all(
     chores.map(async (x) => {
-      if (daysAgo(x.assignDate) <= 0) {
+      const days = daysAgo(x.assignDate);
+      console.log(days);
+      if (days <= 0 && days >= -7) {
         outstanding.push({
           person: x.person,
           name: x.name,
@@ -775,7 +777,7 @@ bot.action("outstanding", async (ctx) => {
     );
     ctx.editMessageReplyMarkup();
   } else {
-    ctx.editMessageText(`There are no chores to assign.`);
+    ctx.editMessageText(`All chores are done!!`);
   }
 });
 
