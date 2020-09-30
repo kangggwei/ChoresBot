@@ -940,9 +940,26 @@ async function getAssignments() {
   return tasks;
 }
 
-// function to check if person is free for the day assigned
-// if not available, a new person will be assigned
-async function checkAvailability() {}
+// function to check assigned person's availability
+// if person not available: assign to the lowest points person
+// if nobody available on that day, push chore forward by a day and repeat
+async function checkAvailability(chore, assignedUser, users) {
+  const available = await Days.findOne(
+    {
+      name: assignedUser.name,
+      date: chore.next,
+      available: true,
+    },
+    (err) => {
+      if (err && users) {
+        assignedUser = users.shift();
+        checkAvailability(chore, assignedUser, users);
+      } else if (err && !users){
+
+      }
+    }
+  );
+}
 
 bot.action("assign", async (ctx) => {
   const outstandingChores = await getAssignments();
@@ -956,6 +973,11 @@ bot.action("assign", async (ctx) => {
 
     outstandingChores.forEach(async (chore) => {
       const assignedUser = users.shift();
+      console.log(assignedUser.name);
+      // check availability before assigning
+      checkAvailability(chore, assignedUser, users);
+      console.log(assignedUser.name);
+
       await Chore.updateOne(
         { name: chore.name },
         { person: assignedUser.name, assignDate: chore.next }
