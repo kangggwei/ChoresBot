@@ -70,9 +70,16 @@ function get_date(days = 0) {
   return new Date(dt + days * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB");
 }
 
+function next_date(date, days = 1) {
+  const dt = toDate(date);
+  return new Date(dt.getTime() + days * 24 * 60 * 60 * 1000).toLocaleDateString(
+    "en-GB"
+  );
+}
+
 function toDate(dateString) {
   const full = dateString.split("/");
-  return new Date(full[2], full[1], full[0]);
+  return new Date(full[2], full[1] - 1, full[0]);
 }
 
 function dateDiff(first, second) {
@@ -810,22 +817,30 @@ async function getAssignments() {
 // function to check assigned person's availability
 // if person not available: assign to the lowest points person
 // if nobody available on that day, push chore forward by a day and repeat
-async function checkAvailability(chore, assignedUser, users) {
-  const available = await Days.findOne(
-    {
-      name: assignedUser.name,
+async function checkAvailability(chore, users) {
+  let i = 0;
+  let available = false;
+  if (dateDiff(get_date(), chore.next) >= 7) {
+    return users[i];
+  }
+
+  do {
+    available = await Days.findOne({
+      name: users[i].name,
       date: chore.next,
       available: true,
-    },
-    (err) => {
-      if (err && users) {
-        assignedUser = users.shift();
-        checkAvailability(chore, assignedUser, users);
-      } else if (err && !users){
+    });
+    i++;
+  } while (!available && i < users.length);
 
-      }
+  if (!available) {
+    chore.next = next_date(chore.next);
+    if (dateDiff(get_date(), chore.next) >= 7) {
+      return users[i];
     }
-  );
+    return checkAvailability(chore, users);
+  }
+  return users[i];
 }
 
 bot.action("assign", async (ctx) => {
@@ -839,17 +854,13 @@ bot.action("assign", async (ctx) => {
     outstandingChores.sort((x, y) => x.effort - y.effort);
 
     outstandingChores.forEach(async (chore) => {
-      const assignedUser = users.shift();
-      console.log(assignedUser.name);
       // check availability before assigning
-      checkAvailability(chore, assignedUser, users);
-      console.log(assignedUser.name);
+      const assignedUser = await checkAvailability(chore, users);
 
       await Chore.updateOne(
         { name: chore.name },
         { person: assignedUser.name, assignDate: chore.next }
       );
-      users.push(assignedUser);
       await User.updateOne(
         { name: assignedUser.name },
         { points: assignedUser.points + chore.effort }
@@ -889,7 +900,7 @@ bot.action("assign", async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-const adminID = [27655697];
+const adminID = [27655697, 207958667];
 
 const adminBot = new Composer();
 
