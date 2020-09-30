@@ -5,7 +5,7 @@ const Schema = mongoose.Schema;
 const daysSchema = new Schema({
   name: { type: String, required: true },
   date: { type: String, required: true },
-  timings: [String],
+  available: { type: Boolean, required: true },
   updatedBy: { type: String, required: true },
 });
 
