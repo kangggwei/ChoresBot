@@ -1,5 +1,5 @@
 {
-  "name": "imptech",
+  "name": "choresbot",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -9,14 +9,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kangggwei/ImpTech.git"
+    "url": "git+https://github.com/kangggwei/ChoresBot.git"
   },
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/kangggwei/ImpTech/issues"
+    "url": "https://github.com/kangggwei/ChoresBot/issues"
   },
-  "homepage": "https://github.com/kangggwei/ImpTech#readme",
+  "homepage": "https://github.com/kangggwei/ChoresBot#readme",
   "dependencies": {
     "axios": "^0.20.0",
     "concurrently": "^5.3.0",

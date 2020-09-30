@@ -11,6 +11,7 @@ const uri = process.env.ATLAS_URI;
 const User = require("./models/user");
 const Chore = require("./models/chore");
 const Days = require("./models/days");
+const { parseFile } = require("fast-csv");
 
 mongoose.connect(uri, {
   useNewUrlParser: true,
@@ -895,7 +896,7 @@ bot.action("assign", async (ctx) => {
 //                                    //
 ////////////////////////////////////////
 
-const adminID = process.env.ADMINID.split(" ");
+const adminID = process.env.ADMINID.split(" ").map((x) => Number(x));
 
 const adminBot = new Composer();
 
