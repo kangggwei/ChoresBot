@@ -17,7 +17,6 @@ Telegram bot to keep track of household chores and its delegation 🏠
 ## Screenshots
 The main page ⬇️
 
-<<<<<<< HEAD
 <img src="screenshots/mainmenu.png" alt="main" width="350"/>
 
 The update availability scene ⬇️
@@ -27,17 +26,6 @@ The update availability scene ⬇️
 The assign chores and outstanding chores scene ⬇️
 
 <img src="screenshots/outstanding.png" alt="outstanding" width="350"/>
-=======
-<img src="screenshots/mainmenu.png" alt="main" width="250"/>
-
-The update availability scene ⬇️
-
-<img src="screenshots/update_availability.png" alt="availability" width="250"/>
-
-The assign chores and outstanding chores scene ⬇️
-
-<img src="screenshots/outstanding.png" alt="outstanding" width="250"/>
->>>>>>> 976009b... Image resizing
 
 
 ## What's next?
