@@ -5,7 +5,6 @@ const Stage = require("telegraf/stage");
 const Markup = require("telegraf/markup");
 const session = require("telegraf/session");
 const Scene = require("telegraf/scenes/base");
-const { leave } = Stage;
 const mongoose = require("mongoose");
 const uri = process.env.ATLAS_URI;
 const User = require("./models/user");
@@ -43,6 +42,10 @@ const updateUser = new Scene("updateUser");
 stage.register(updateUser);
 const selectAvailability = new Scene("selectAvailability");
 stage.register(selectAvailability);
+const finishChore = new Scene("finishChore");
+stage.register(finishChore);
+const whichChore = new Scene("whichChore");
+stage.register(whichChore);
 const admin = new Scene("admin");
 stage.register(admin);
 
@@ -67,7 +70,7 @@ function split(array, n) {
 
 function get_date(days = 0) {
   const dt = new Date().getTime();
-  return new Date(dt + days * 24 * 60 * 60 * 1000).toLocaleDateString("en-GB");
+  return new Date(dt + days * 24 * 60 * 60 * 1000).toLocaleDateString("en-US");
 }
 
 function next_date(date, days = 1) {
@@ -87,9 +90,32 @@ function dateDiff(first, second) {
 }
 
 function daysAgo(first) {
-  return dateDiff(first, new Date().toLocaleDateString("en-GB"));
+  return dateDiff(first, new Date().toLocaleDateString("en-US"));
 }
 
+async function get_all_chores() {
+  const allChores = await Chore.find();
+
+  const choresList = allChores.map((x) => [
+    Markup.callbackButton(x.name, "<" + x.name),
+  ]);
+
+  return choresList;
+}
+
+async function get_all_users() {
+  const allUsers = await User.find();
+
+  const usersList = allUsers.map((x) => [
+    Markup.callbackButton(x.name, "<" + x.name),
+  ]);
+
+  return usersList;
+}
+
+async function update_points(user, points) {
+  await User.updateOne({ name: user.name }, { points: user.points + points });
+}
 ////////////////////////////////////////
 //                                    //
 //            Main Screen             //
@@ -118,6 +144,7 @@ bot.start((ctx) => {
         Markup.callbackButton("⏰ Update Availability", "availability"),
         Markup.callbackButton("✂️ Edit Chores/Users", "edit"),
       ],
+      [Markup.callbackButton("🎉 I did work!", "finish")],
     ])
       .oneTime()
       .resize()
@@ -155,6 +182,7 @@ bot.action("mainScreen", (ctx) => {
         Markup.callbackButton("⏰ Update Availability", "availability"),
         Markup.callbackButton("✂️ Edit Chores/Users", "edit"),
       ],
+      [Markup.callbackButton("🎉 I did work!", "finish")],
     ])
       .oneTime()
       .resize()
@@ -283,13 +311,8 @@ bot.action("submitChore", (ctx) => {
 //        Viewing Chores Scene        //
 //                                    //
 ////////////////////////////////////////
-
 bot.action("viewChores", async (ctx) => {
-  const existingChores = await Chore.find();
-
-  const choresList = existingChores.map((x) => [
-    Markup.callbackButton(x.name, "<" + x.name),
-  ]);
+  const choresList = await get_all_chores();
 
   if (choresList.length) {
     ctx.editMessageText(
@@ -742,7 +765,6 @@ async function getOustanding() {
   await Promise.all(
     chores.map(async (x) => {
       const days = daysAgo(x.assignDate);
-      console.log(days);
       if (days <= 0 && days >= -7) {
         outstanding.push({
           person: x.person,
@@ -788,27 +810,31 @@ bot.action("outstanding", async (ctx) => {
 ////////////////////////////////////////
 // function to get chores that need to be assigned
 async function getAssignments() {
-  const chores = await Chore.find({ frequency: { $lt: 28 } });
-
+  const chores = await Chore.find();
   const tasks = [];
 
   await Promise.all(
     chores.map(async (x) => {
       const daysBetween = 28 / x.frequency;
+      const user = await User.findOne({
+        name: x.person,
+      });
       if (!x.assignDate || daysAgo(x.assignDate) > daysBetween) {
         tasks.push({
           name: x.name,
           effort: x.effort,
           next: get_date(1),
-          person: x.person,
         });
+
+        await update_points(user, x.effort);
       } else if (daysAgo(x.assignDate) > 0) {
         tasks.push({
           name: x.name,
           effort: x.effort,
           next: get_date(daysBetween - daysAgo(x.assignDate)),
-          person: x.person,
         });
+
+        await update_points(user, x.effort);
       }
     })
   );
@@ -856,10 +882,6 @@ bot.action("assign", async (ctx) => {
         { name: chore.name },
         { person: assignedUser.name, assignDate: chore.next }
       );
-      await User.updateOne(
-        { name: assignedUser.name },
-        { points: assignedUser.points + chore.effort }
-      );
 
       assigned.push({ chore: chore, person: assignedUser.name });
     });
@@ -887,6 +909,60 @@ bot.action("assign", async (ctx) => {
         .extra()
     );
   }
+});
+
+////////////////////////////////////////
+//                                    //
+//        Finish Chore Scene          //
+//                                    //
+////////////////////////////////////////
+bot.action("finish", async (ctx) => {
+  const usersList = await get_all_users();
+
+  ctx.editMessageText(
+    "Who are you?",
+    Markup.inlineKeyboard([...usersList, [mainMenuButton]])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+  ctx.scene.enter("whichChore");
+});
+
+whichChore.action(/^</, async (ctx) => {
+  const choresList = await get_all_chores();
+  ctx.session.finishUser = await User.findOne({
+    name: ctx.update.callback_query.data.replace("<", ""),
+  });
+
+  ctx.editMessageText(
+    "Which chore did you finish?",
+    Markup.inlineKeyboard([...choresList, [mainMenuButton]])
+      .oneTime()
+      .resize()
+      .extra()
+  );
+  await ctx.scene.leave("whichChore");
+  ctx.scene.enter("finishChore");
+});
+
+finishChore.action(/^</, async (ctx) => {
+  ctx.session.finishedChore = await Chore.findOne({
+    name: ctx.update.callback_query.data.replace("<", ""),
+  });
+
+  await Chore.updateOne(
+    { name: ctx.session.finishedChore.name },
+    { person: ctx.session.finishUser.name, assignDate: get_date() }
+  );
+
+  ctx.editMessageText(
+    `Updated!`,
+    Markup.inlineKeyboard([[mainMenuButton]])
+      .oneTime()
+      .resize()
+      .extra()
+  );
 });
 
 ////////////////////////////////////////
